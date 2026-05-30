@@ -16,6 +16,12 @@ import { LATAM_COUNTRIES } from "@/constants/latamCountries";
 import { fetchCountriesCatalog } from "@/services/countries";
 import termsPdfUrl from "@/assets/doc/pdfejemplo.pdf";
 import { DISTRIBUTOR_TERMS } from "@/constants/distributorTerms";
+import {
+  SPONSOR_REQUIRED_MESSAGE,
+  SPONSOR_INVALID_MESSAGE,
+  validateBirthDateAge,
+  computeBirthDateMax,
+} from "@/utils/registerValidation";
 
 const distributorTerms = DISTRIBUTOR_TERMS;
 const body = document.getElementsByTagName("body")[0];
@@ -36,6 +42,7 @@ const preferredBinaryLeg = ref("auto");
 const sponsorValidated = ref(null);
 const sponsorCheckLoading = ref(false);
 const sponsorError = ref("");
+const birthDateError = ref("");
 const countriesCatalog = ref([]);
 const catalogError = ref("");
 const showPassword = ref(false);
@@ -92,6 +99,8 @@ const phoneDial = computed(() => {
   const code = selectedCountryMeta.value?.code || countryCode.value;
   return DIAL_BY_COUNTRY[code] || "+";
 });
+
+const birthDateMax = computed(() => computeBirthDateMax());
 
 function normalizePhoneWithDial(raw, dial) {
   const v = String(raw || "").trim();
@@ -232,6 +241,29 @@ function syncCountryFromSelect() {
 }
 
 watch(
+  () => sponsorReferralCode.value,
+  (next) => {
+    const code = String(next || "").trim();
+    if (!code) {
+      sponsorValidated.value = null;
+      return;
+    }
+    if (sponsorError.value === SPONSOR_REQUIRED_MESSAGE) {
+      sponsorError.value = "";
+    }
+  }
+);
+
+watch(
+  () => birthDate.value,
+  () => {
+    if (birthDateError.value) {
+      birthDateError.value = validateBirthDateAge(birthDate.value);
+    }
+  }
+);
+
+watch(
   () => [route.query.sponsor, route.query.ref, route.query.codigo],
   () => {
     applySponsorFromRoute();
@@ -259,17 +291,19 @@ async function validateSponsor() {
   const code = sponsorReferralCode.value.trim();
   if (!code) {
     sponsorValidated.value = null;
-    sponsorError.value = "";
-    return;
+    sponsorError.value = SPONSOR_REQUIRED_MESSAGE;
+    return false;
   }
   sponsorCheckLoading.value = true;
   sponsorError.value = "";
   try {
     const data = await fetchSponsorByCode(code);
     sponsorValidated.value = data.sponsor;
+    return true;
   } catch {
     sponsorValidated.value = null;
-    sponsorError.value = "No se encontró un patrocinador con ese código.";
+    sponsorError.value = SPONSOR_INVALID_MESSAGE;
+    return false;
   } finally {
     sponsorCheckLoading.value = false;
   }
@@ -298,6 +332,9 @@ function acceptTermsModal() {
 async function signup() {
   error.value = "";
   fieldErrors.value = [];
+  sponsorError.value = "";
+  birthDateError.value = "";
+
   const okApi = countriesCatalog.value.length > 0 && String(countryId.value || "").trim() !== "";
   const codeUpper = String(countryCode.value || "").trim().toUpperCase();
   const okLatam =
@@ -310,6 +347,17 @@ async function signup() {
   }
   if (!terms.value) {
     error.value = "Debe aceptar los términos y condiciones.";
+    return;
+  }
+  if (!sponsorReferralCode.value.trim()) {
+    sponsorError.value = SPONSOR_REQUIRED_MESSAGE;
+    error.value = SPONSOR_REQUIRED_MESSAGE;
+    return;
+  }
+  const birthErr = validateBirthDateAge(birthDate.value);
+  if (birthErr) {
+    birthDateError.value = birthErr;
+    error.value = birthErr;
     return;
   }
   const ciErr = validateCiNit(ciNit.value);
@@ -336,13 +384,11 @@ async function signup() {
   }
   loading.value = true;
   try {
-    if (sponsorReferralCode.value.trim()) {
-      await validateSponsor();
-      if (!sponsorValidated.value) {
-        error.value = sponsorError.value || "Código de patrocinador inválido.";
-        loading.value = false;
-        return;
-      }
+    const sponsorOk = await validateSponsor();
+    if (!sponsorOk || !sponsorValidated.value) {
+      error.value = sponsorError.value || "Código de patrocinador inválido.";
+      loading.value = false;
+      return;
     }
     const payload = buildMemberRegisterPayload({
       name: name.value,
@@ -423,8 +469,7 @@ async function signup() {
           <div class="col-lg-6 text-center mx-auto">
             <h1 class="text-white mb-2 mt-5">Crear cuenta</h1>
             <p class="text-lead text-white mb-0">
-              Registro de socio. Si llegaste por enlace de referido, tu patrocinador
-              quedará vinculado automáticamente.
+              Registro de socio. Necesitas el código de un patrocinador activo para inscribirte.
             </p>
           </div>
         </div>
@@ -476,8 +521,17 @@ async function signup() {
               </div>
 
               <div
-                v-if="sponsorReferralCode"
-                class="alert alert-info text-white text-sm mb-3"
+                v-if="!sponsorReferralCode.trim()"
+                class="alert alert-warning text-dark text-sm mb-3"
+                role="alert"
+              >
+                {{ SPONSOR_REQUIRED_MESSAGE }}
+              </div>
+
+              <div
+                v-else
+                class="alert text-sm mb-3"
+                :class="sponsorValidated ? 'alert-success text-white' : sponsorError ? 'alert-danger text-white' : 'alert-info text-white'"
                 role="alert"
               >
                 <template v-if="sponsorCheckLoading">Verificando patrocinador…</template>
@@ -487,19 +541,26 @@ async function signup() {
                   (código {{ sponsorValidated.referral_code }})
                 </template>
                 <template v-else-if="sponsorError">{{ sponsorError }}</template>
-                <template v-else>Ingresa un código válido o continúa sin patrocinador.</template>
+                <template v-else>Valida el código de tu patrocinador antes de registrarte.</template>
               </div>
 
               <form @submit.prevent="signup" class="mt-4">
                 <h6 class="text-sm text-dark font-weight-bolder mb-3">Datos personales</h6>
                 <div class="mb-3">
-                  <label class="form-label text-sm mb-1">Código de patrocinador (opcional)</label>
+                  <label class="form-label text-sm mb-1"
+                    >Código de patrocinador <span class="text-danger">*</span></label
+                  >
                   <argon-input
                     v-model="sponsorReferralCode"
                     id="sponsor"
                     type="text"
                     placeholder="Ej. 10, 11, 100…"
+                    :error="!!sponsorError"
                   />
+                  <p v-if="sponsorError" class="text-danger text-xxs mb-0 mt-1">{{ sponsorError }}</p>
+                  <p v-else class="text-xxs text-muted mb-0 mt-1">
+                    Solicita tu código a un socio activo. Sin patrocinador no es posible completar la inscripción.
+                  </p>
                   <button
                     type="button"
                     class="btn btn-sm btn-outline-primary mt-2"
@@ -541,8 +602,21 @@ async function signup() {
                   </p>
                 </div>
                 <div class="mb-3">
-                  <label class="form-label text-sm mb-1">Fecha de nacimiento</label>
-                  <argon-input v-model="birthDate" id="bd" type="date" placeholder="" />
+                  <label class="form-label text-sm mb-1"
+                    >Fecha de nacimiento <span class="text-danger">*</span></label
+                  >
+                  <input
+                    v-model="birthDate"
+                    id="bd"
+                    type="date"
+                    class="form-control"
+                    :class="{ 'is-invalid': birthDateError }"
+                    :max="birthDateMax"
+                    required
+                    @blur="birthDateError = validateBirthDateAge(birthDate)"
+                  />
+                  <p v-if="birthDateError" class="text-danger text-xxs mb-0 mt-1">{{ birthDateError }}</p>
+                  <p v-else class="text-xxs text-muted mb-0 mt-1">Debes ser mayor o igual de 18 años.</p>
                 </div>
 
                 <div class="mb-3">

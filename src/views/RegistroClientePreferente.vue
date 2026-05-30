@@ -1,11 +1,19 @@
 <script setup>
-import { ref, onBeforeMount, onBeforeUnmount } from "vue";
+import { ref, computed, watch, onBeforeMount, onBeforeUnmount, onMounted } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useStore } from "vuex";
 import Navbar from "@/examples/PageLayout/Navbar.vue";
 import ArgonInput from "@/components/ArgonInput.vue";
 import ArgonButton from "@/components/ArgonButton.vue";
 import { registerPreferredCustomer } from "@/services/auth";
+import { fetchSponsorByCode } from "@/services/sponsor";
+import { persistReferralSponsor, readReferralSponsor } from "@/utils/referralStorage";
+import {
+  SPONSOR_REQUIRED_MESSAGE,
+  SPONSOR_INVALID_MESSAGE,
+  validateBirthDateAge,
+  computeBirthDateMax,
+} from "@/utils/registerValidation";
 
 const router = useRouter();
 const route = useRoute();
@@ -14,11 +22,18 @@ const store = useStore();
 const name = ref("");
 const documentId = ref("");
 const sponsorCode = ref("");
+const birthDate = ref("");
 const email = ref("");
 const password = ref("");
 const passwordConfirmation = ref("");
 const loading = ref(false);
 const error = ref("");
+const sponsorValidated = ref(null);
+const sponsorCheckLoading = ref(false);
+const sponsorError = ref("");
+const birthDateError = ref("");
+
+const birthDateMax = computed(() => computeBirthDateMax());
 
 const body = document.getElementsByTagName("body")[0];
 
@@ -37,14 +52,54 @@ function validateEmailFormat(v) {
   return "";
 }
 
+function applySponsorFromRoute() {
+  const q = route.query.sponsor || route.query.ref || route.query.codigo;
+  if (q) {
+    sponsorCode.value = String(q).trim();
+    persistReferralSponsor(sponsorCode.value);
+    return;
+  }
+  const stored = readReferralSponsor();
+  if (stored) {
+    sponsorCode.value = stored;
+  }
+}
+
+async function validateSponsor() {
+  const code = sponsorCode.value.trim();
+  if (!code) {
+    sponsorValidated.value = null;
+    sponsorError.value = SPONSOR_REQUIRED_MESSAGE;
+    return false;
+  }
+  sponsorCheckLoading.value = true;
+  sponsorError.value = "";
+  try {
+    const data = await fetchSponsorByCode(code);
+    sponsorValidated.value = data.sponsor;
+    return true;
+  } catch {
+    sponsorValidated.value = null;
+    sponsorError.value = SPONSOR_INVALID_MESSAGE;
+    return false;
+  } finally {
+    sponsorCheckLoading.value = false;
+  }
+}
+
 onBeforeMount(() => {
   store.state.hideConfigButton = true;
   store.state.showNavbar = false;
   store.state.showSidenav = false;
   store.state.showFooter = false;
   body.classList.remove("bg-gray-100");
-  const q = route.query.sponsor || route.query.ref || route.query.codigo;
-  if (q) sponsorCode.value = String(q);
+  applySponsorFromRoute();
+});
+
+onMounted(() => {
+  if (sponsorCode.value) {
+    validateSponsor();
+  }
 });
 
 onBeforeUnmount(() => {
@@ -55,18 +110,61 @@ onBeforeUnmount(() => {
   body.classList.add("bg-gray-100");
 });
 
+watch(
+  () => sponsorCode.value,
+  (next) => {
+    const code = String(next || "").trim();
+    if (!code) {
+      sponsorValidated.value = null;
+      return;
+    }
+    if (sponsorError.value === SPONSOR_REQUIRED_MESSAGE) {
+      sponsorError.value = "";
+    }
+  }
+);
+
+watch(
+  () => birthDate.value,
+  () => {
+    if (birthDateError.value) {
+      birthDateError.value = validateBirthDateAge(birthDate.value);
+    }
+  }
+);
+
+watch(
+  () => [route.query.sponsor, route.query.ref, route.query.codigo],
+  () => {
+    applySponsorFromRoute();
+    if (sponsorCode.value) {
+      validateSponsor();
+    }
+  }
+);
+
 async function submit() {
   error.value = "";
-  const docErr = validateCiNit(documentId.value);
-  const emErr = validateEmailFormat(email.value);
+  sponsorError.value = "";
+  birthDateError.value = "";
+
   if (!name.value.trim()) {
     error.value = "El nombre es obligatorio.";
     return;
   }
   if (!sponsorCode.value.trim()) {
-    error.value = "El código de patrocinador es obligatorio.";
+    sponsorError.value = SPONSOR_REQUIRED_MESSAGE;
+    error.value = SPONSOR_REQUIRED_MESSAGE;
     return;
   }
+  const birthErr = validateBirthDateAge(birthDate.value);
+  if (birthErr) {
+    birthDateError.value = birthErr;
+    error.value = birthErr;
+    return;
+  }
+  const docErr = validateCiNit(documentId.value);
+  const emErr = validateEmailFormat(email.value);
   if (docErr) {
     error.value = docErr;
     return;
@@ -83,12 +181,20 @@ async function submit() {
     error.value = "Las contraseñas no coinciden.";
     return;
   }
+
   loading.value = true;
   try {
+    const sponsorOk = await validateSponsor();
+    if (!sponsorOk || !sponsorValidated.value) {
+      error.value = sponsorError.value || "Código de patrocinador inválido.";
+      return;
+    }
+
     await registerPreferredCustomer({
       name: name.value.trim(),
       document_id: documentId.value.trim(),
       sponsor_referral_code: sponsorCode.value.trim(),
+      birth_date: birthDate.value.trim(),
       email: email.value.trim(),
       password: password.value,
       password_confirmation: passwordConfirmation.value,
@@ -111,7 +217,7 @@ async function submit() {
 </script>
 
 <template>
- <div class="auth-shell min-vh-100 d-flex flex-column">
+  <div class="auth-shell min-vh-100 d-flex flex-column">
     <div class="container top-0 position-sticky z-index-sticky px-2 px-sm-3">
       <navbar
         isBlur="blur border-radius-lg my-3 py-2 start-0 end-0 mx-3 mx-sm-4 shadow"
@@ -128,13 +234,66 @@ async function submit() {
               <div class="card-header text-center bg-white border-0 pt-4 pb-0 px-4">
                 <h4 class="font-weight-bolder text-dark mb-1">Cliente preferente</h4>
                 <p class="text-sm text-secondary mb-0">
-                  Compras al precio de cliente. Tu patrocinador recibe el bono de venta directa. Tras registrarte,
-                  verifica tu correo para ingresar.
+                  Compras al precio de cliente. Necesitas el código de un patrocinador activo para registrarte.
                 </p>
               </div>
               <div class="card-body px-4 pt-3 pb-4">
+                <div
+                  v-if="!sponsorCode.trim()"
+                  class="alert alert-warning text-dark text-sm py-2 mb-3"
+                  role="alert"
+                >
+                  {{ SPONSOR_REQUIRED_MESSAGE }}
+                </div>
+
+                <div
+                  v-else
+                  class="alert text-sm py-2 mb-3"
+                  :class="
+                    sponsorValidated
+                      ? 'alert-success text-white'
+                      : sponsorError
+                        ? 'alert-danger text-white'
+                        : 'alert-info text-white'
+                  "
+                  role="alert"
+                >
+                  <template v-if="sponsorCheckLoading">Verificando patrocinador…</template>
+                  <template v-else-if="sponsorValidated">
+                    Patrocinador:
+                    <strong>{{ sponsorValidated.name }}</strong>
+                    (código {{ sponsorValidated.referral_code }})
+                  </template>
+                  <template v-else-if="sponsorError">{{ sponsorError }}</template>
+                  <template v-else>Valida el código de tu patrocinador antes de registrarte.</template>
+                </div>
+
                 <div v-if="error" class="alert alert-danger text-white text-sm py-2 mb-3">{{ error }}</div>
                 <form role="form" class="auth-form" @submit.prevent="submit">
+                  <div class="mb-3">
+                    <label class="form-label text-sm mb-1">Código de patrocinador <span class="text-danger">*</span></label>
+                    <argon-input
+                      id="rcp-sponsor"
+                      v-model="sponsorCode"
+                      type="text"
+                      placeholder="Código de tu patrocinador"
+                      name="sponsor"
+                      size="lg"
+                      :error="!!sponsorError"
+                    />
+                    <p v-if="sponsorError" class="text-danger text-xxs mb-0 mt-1">{{ sponsorError }}</p>
+                    <p v-else class="text-xxs text-secondary mb-0 mt-1">
+                      Solicita tu código a un socio activo. Sin patrocinador no es posible completar la inscripción.
+                    </p>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-success mt-2"
+                      :disabled="sponsorCheckLoading || !sponsorCode.trim()"
+                      @click="validateSponsor"
+                    >
+                      Validar código
+                    </button>
+                  </div>
                   <div class="mb-3">
                     <label class="form-label text-sm mb-1">Nombre completo <span class="text-danger">*</span></label>
                     <argon-input
@@ -162,15 +321,21 @@ async function submit() {
                     <p class="text-xxs text-secondary mb-0 mt-1">5–32 caracteres: letras, números, punto o guion.</p>
                   </div>
                   <div class="mb-3">
-                    <label class="form-label text-sm mb-1">Código de patrocinador <span class="text-danger">*</span></label>
-                    <argon-input
-                      id="rcp-sponsor"
-                      v-model="sponsorCode"
-                      type="text"
-                      placeholder="Código de tu patrocinador"
-                      name="sponsor"
-                      size="lg"
+                    <label class="form-label text-sm mb-1"
+                      >Fecha de nacimiento <span class="text-danger">*</span></label
+                    >
+                    <input
+                      v-model="birthDate"
+                      id="rcp-birth"
+                      type="date"
+                      class="form-control form-control-lg"
+                      :class="{ 'is-invalid': birthDateError }"
+                      :max="birthDateMax"
+                      required
+                      @blur="birthDateError = validateBirthDateAge(birthDate)"
                     />
+                    <p v-if="birthDateError" class="text-danger text-xxs mb-0 mt-1">{{ birthDateError }}</p>
+                    <p v-else class="text-xxs text-secondary mb-0 mt-1">Debes ser mayor o igual de 18 años.</p>
                   </div>
                   <div class="mb-3">
                     <label class="form-label text-sm mb-1">Correo electrónico <span class="text-danger">*</span></label>
