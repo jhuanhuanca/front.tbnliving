@@ -1,6 +1,8 @@
-/**
- * Texto legal / logístico obligatorio en flujos de pago y checkout.
- * Reemplazar Plan 5000 por el nombre comercial real si aplica.
- */
-export const SHIPPING_NOTICE_TEXT =
-  "Entrega en la ciudad de Santa Cruz (Plan 5000). Otros departamentos: envío por correspondencia en máximo 72 horas.";
+export const SHIPPING_NOTICE_LOCAL =
+  "Entrega local (Santa Cruz): se realizará en un plazo de 24 horas hábiles.";
+
+export const SHIPPING_NOTICE_NATIONAL =
+  "Entrega nacional (otros departamentos): se realizará dentro de 48 a 72 horas hábiles.";
+
+/** @deprecated Usar deliveryOptions.js para textos por tipo de entrega. */
+export const SHIPPING_NOTICE_TEXT = `${SHIPPING_NOTICE_LOCAL} ${SHIPPING_NOTICE_NATIONAL}`;

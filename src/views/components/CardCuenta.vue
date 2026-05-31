@@ -447,6 +447,8 @@
             </button>
           </div>
           <div class="card-body pt-3">
+            <div v-if="ticketMsg" class="alert alert-success text-white text-sm py-2">{{ ticketMsg }}</div>
+            <div v-if="ticketErr" class="alert alert-warning text-white text-sm py-2">{{ ticketErr }}</div>
             <div v-if="newTicketOpen" class="mb-4">
               <div class="row g-3">
                 <div class="col-md-5">
@@ -493,6 +495,7 @@
                   <tr>
                     <th class="text-xs text-uppercase text-muted font-weight-bold">Ticket</th>
                     <th class="text-xs text-uppercase text-muted font-weight-bold">Categoría</th>
+                    <th class="text-xs text-uppercase text-muted font-weight-bold">Prioridad</th>
                     <th class="text-xs text-uppercase text-muted font-weight-bold">Fecha</th>
                     <th class="text-xs text-uppercase text-muted font-weight-bold text-end">Estado</th>
                   </tr>
@@ -504,13 +507,14 @@
                       <div class="text-xs text-muted">#{{ t.codigo }}</div>
                     </td>
                     <td class="text-sm text-muted">{{ t.categoria }}</td>
+                    <td class="text-sm text-muted">{{ t.prioridad || "—" }}</td>
                     <td class="text-sm text-muted">{{ t.fecha }}</td>
                     <td class="text-end">
                       <span class="badge" :class="ticketBadge(t.estado)">{{ t.estado }}</span>
                     </td>
                   </tr>
                   <tr v-if="tickets.length === 0">
-                    <td colspan="4" class="text-center text-sm text-muted py-4">
+                    <td colspan="5" class="text-center text-sm text-muted py-4">
                       No tienes tickets aún.
                     </td>
                   </tr>
@@ -617,6 +621,8 @@ export default {
         confirmedAt: null,
       },
       tickets: [],
+      ticketMsg: "",
+      ticketErr: "",
       newTicketOpen: false,
       ticketDraft: {
         asunto: "",
@@ -760,6 +766,7 @@ export default {
           categoria: t.category,
           fecha: t.created_at ? new Date(t.created_at).toLocaleDateString("es-BO") : "—",
           estado: t.status,
+          prioridad: t.priority,
         }));
       } catch {
         this.tickets = [];
@@ -960,6 +967,8 @@ export default {
       this.createTicketApi();
     },
     async createTicketApi() {
+      this.ticketErr = "";
+      this.ticketMsg = "";
       try {
         const r = await createSupportTicket({
           subject: this.ticketDraft.asunto,
@@ -977,15 +986,21 @@ export default {
               categoria: t.category,
               fecha: t.created_at ? new Date(t.created_at).toLocaleDateString("es-BO") : this.nowLabel(),
               estado: t.status,
+              prioridad: t.priority,
             },
             ...this.tickets,
           ];
         }
+        this.ticketMsg = r.message || `Ticket ${t?.code || ""} enviado. El equipo lo revisará pronto.`;
         this.resetTicketDraft();
         this.newTicketOpen = false;
         this.lastUpdated = this.nowLabel();
-      } catch {
-        /* ignore */
+        await this.loadTickets();
+      } catch (e) {
+        this.ticketErr =
+          e.response?.data?.message ||
+          (e.response?.data?.errors && Object.values(e.response.data.errors)?.[0]?.[0]) ||
+          "No se pudo enviar el ticket. Verifica los campos e intenta de nuevo.";
       }
     },
     ticketBadge(estado) {

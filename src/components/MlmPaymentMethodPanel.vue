@@ -3,7 +3,7 @@
  * Panel reutilizable de medios de pago MLM (UI).
  */
 import { ref, computed, watch } from "vue";
-import { SHIPPING_NOTICE_TEXT } from "@/constants/shippingNotice";
+import { SHIPPING_NOTICE_LOCAL, SHIPPING_NOTICE_NATIONAL } from "@/constants/shippingNotice";
 import { REGISTRATION_PAYMENT_METHODS } from "@/constants/registrationPayments";
 import qrImageUrl from "@/assets/img/QRimage.jpeg";
 
@@ -91,7 +91,9 @@ const paymentOptions = REGISTRATION_PAYMENT_METHODS;
 
       <div class="alert alert-secondary border-0 text-dark text-xs mb-3 py-2 mlm-pay-panel__notice">
         <i class="ni ni-delivery-fast me-1 text-success" aria-hidden="true"></i>
-        <strong>Entrega y envío:</strong> {{ SHIPPING_NOTICE_TEXT }}
+        <strong>Entrega y envío:</strong>
+        {{ SHIPPING_NOTICE_LOCAL }}
+        {{ SHIPPING_NOTICE_NATIONAL }}
       </div>
 
       <!-- Transferencia -->

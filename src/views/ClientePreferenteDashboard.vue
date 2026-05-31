@@ -3,7 +3,19 @@ import { ref, computed, onMounted } from "vue";
 import { useStore } from "vuex";
 import ArgonButton from "@/components/ArgonButton.vue";
 import MlmPaymentMethodPanel from "@/components/MlmPaymentMethodPanel.vue";
+import OrderDeliveryPanel from "@/components/OrderDeliveryPanel.vue";
 import { fetchProductsCatalog, createOrder, fetchOrders, fetchProfile } from "@/services/me";
+import {
+  DELIVERY_MODE_PICKUP,
+  DELIVERY_MODE_SHIPPING,
+  emptyShippingAddress,
+  isShippingAddressComplete,
+} from "@/constants/deliveryOptions";
+import {
+  preferentePriceFromProduct,
+  publicPriceFromProduct,
+  sponsorCommissionFromProduct,
+} from "@/utils/preferredCustomerPricing";
 
 const store = useStore();
 const loading = ref(true);
@@ -14,8 +26,9 @@ const carrito = ref([]);
 const checkoutLoading = ref(false);
 const checkoutMsg = ref("");
 const paymentMethod = ref("transferencia");
+const deliveryMode = ref(DELIVERY_MODE_PICKUP);
+const shippingAddress = ref(emptyShippingAddress());
 
-// Imágenes fallback (mismo folder del socio)
 function loadFallbackImages() {
   try {
     // eslint-disable-next-line no-undef
@@ -40,6 +53,20 @@ function imageFor(p, index) {
   return FALLBACK_IMAGES[index % FALLBACK_IMAGES.length];
 }
 
+function mapProducto(p, index) {
+  const precioPublico = publicPriceFromProduct(p);
+  const precioPreferente = preferentePriceFromProduct(p);
+  const comisionSocio = sponsorCommissionFromProduct(p);
+  return {
+    ...p,
+    image_ui: imageFor(p, index),
+    precio_publico: precioPublico,
+    precio_preferente: precioPreferente,
+    comision_socio: comisionSocio,
+    precio_socio: Number(p.precio_socio ?? p.price ?? 0),
+  };
+}
+
 const paymentSettlement = computed(() =>
   ["tarjeta", "online"].includes(paymentMethod.value) ? "immediate" : "manual"
 );
@@ -48,8 +75,16 @@ const totalCarrito = computed(() =>
   carrito.value.reduce((s, it) => s + Number(it.precio) * Number(it.cantidad), 0)
 );
 
+const canCheckout = computed(() => {
+  if (!carrito.value.length) return false;
+  if (deliveryMode.value === DELIVERY_MODE_SHIPPING) {
+    return isShippingAddressComplete(shippingAddress.value);
+  }
+  return true;
+});
+
 function addToCart(p) {
-  const precio = Number(p.price ?? p.precio_mostrar ?? 0);
+  const precio = Number(p.precio_preferente ?? preferentePriceFromProduct(p));
   const ex = carrito.value.find((x) => x.id === p.id);
   if (ex) {
     ex.cantidad += 1;
@@ -58,6 +93,7 @@ function addToCart(p) {
       id: p.id,
       name: p.name,
       precio,
+      precio_publico: Number(p.precio_publico ?? publicPriceFromProduct(p)),
       pv_points: Number(p.pv_points || 0),
       cantidad: 1,
     });
@@ -83,10 +119,7 @@ async function load() {
       fetchProfile(),
     ]);
     const rows = (cat.data || []).slice().sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
-    productos.value = rows.map((p, i) => ({
-      ...p,
-      image_ui: imageFor(p, i),
-    }));
+    productos.value = rows.map((p, i) => mapProducto(p, i));
     orders.value = ord.data || [];
     await store.dispatch("auth/setAuth", {
       user: prof,
@@ -102,20 +135,29 @@ async function load() {
 onMounted(load);
 
 async function checkout() {
-  if (!carrito.value.length) return;
+  if (!canCheckout.value) return;
   checkoutLoading.value = true;
   checkoutMsg.value = "";
   try {
-    const order = await createOrder({
+    const payload = {
       tipo: "producto",
       payment_settlement: paymentSettlement.value,
       payment_method: paymentMethod.value,
+      delivery_mode: deliveryMode.value,
       items: carrito.value.map((it) => ({
         product_id: it.id,
         cantidad: it.cantidad,
       })),
-    });
+    };
+    if (deliveryMode.value === DELIVERY_MODE_SHIPPING) {
+      payload.shipping_departamento = shippingAddress.value.departamento.trim();
+      payload.shipping_ciudad = shippingAddress.value.ciudad.trim();
+      payload.shipping_direccion = shippingAddress.value.direccion.trim();
+    }
+    const order = await createOrder(payload);
     carrito.value = [];
+    deliveryMode.value = DELIVERY_MODE_PICKUP;
+    shippingAddress.value = emptyShippingAddress();
     checkoutMsg.value =
       order?.estado === "pendiente_pago"
         ? "Pedido registrado como pendiente de pago. La empresa confirmará según tu método (transferencia, QR, etc.)."
@@ -141,8 +183,9 @@ function formatBs(n) {
       <div class="col-12">
         <h4 class="text-dark font-weight-bolder">Cliente preferente</h4>
         <p class="text-sm text-secondary mb-0">
-          Precios mostrados: <strong>precio de cliente</strong>. Tu patrocinador recibe en su billetera el bono de
-          venta directa por la diferencia con el precio socio.
+          Precios con <strong>10% de descuento</strong> sobre el precio público. Tu patrocinador recibe en su billetera
+          el <strong>10% del precio público</strong> por cada producto; el resto cubre costos de producto, envío y
+          administración.
         </p>
       </div>
     </div>
@@ -169,7 +212,14 @@ function formatBs(n) {
                     <p class="text-xs text-muted mb-2 text-truncate-3" style="min-height: 2.5rem">
                       {{ p.description }}
                     </p>
-                    <p class="text-sm font-weight-bold mb-2">{{ formatBs(p.price) }}</p>
+                    <div class="mb-2">
+                      <span class="text-xxs text-muted d-block">Precio público</span>
+                      <span class="text-sm text-secondary text-decoration-line-through">{{ formatBs(p.precio_publico) }}</span>
+                    </div>
+                    <p class="text-sm font-weight-bold text-success mb-1">
+                      Tu precio (−10%): {{ formatBs(p.precio_preferente) }}
+                    </p>
+                    <p class="text-xxs text-muted mb-2">Bono patrocinador: {{ formatBs(p.comision_socio) }} / ud.</p>
                     <argon-button color="success" size="sm" @click="addToCart(p)">Agregar</argon-button>
                   </div>
                 </div>
@@ -233,6 +283,17 @@ function formatBs(n) {
             <p v-else class="text-sm text-muted">Vacío</p>
             <p v-if="carrito.length" class="text-sm font-weight-bold">Total: {{ formatBs(totalCarrito) }}</p>
             <div v-if="carrito.length" class="mb-3">
+              <OrderDeliveryPanel
+                v-model="deliveryMode"
+                :departamento="shippingAddress.departamento"
+                :ciudad="shippingAddress.ciudad"
+                :direccion="shippingAddress.direccion"
+                @update:departamento="shippingAddress.departamento = $event"
+                @update:ciudad="shippingAddress.ciudad = $event"
+                @update:direccion="shippingAddress.direccion = $event"
+              />
+            </div>
+            <div v-if="carrito.length" class="mb-3">
               <MlmPaymentMethodPanel
                 v-model="paymentMethod"
                 :show-method-select="true"
@@ -242,11 +303,17 @@ function formatBs(n) {
             <argon-button
               color="dark"
               class="w-100"
-              :disabled="!carrito.length || checkoutLoading"
+              :disabled="!canCheckout || checkoutLoading"
               @click="checkout"
             >
               {{ checkoutLoading ? "Procesando…" : "Confirmar pedido" }}
             </argon-button>
+            <p
+              v-if="carrito.length && deliveryMode === DELIVERY_MODE_SHIPPING && !canCheckout"
+              class="text-danger text-xs mt-2 mb-0"
+            >
+              Completa departamento, ciudad y dirección para continuar.
+            </p>
           </div>
         </div>
       </div>

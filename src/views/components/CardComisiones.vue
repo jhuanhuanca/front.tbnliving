@@ -483,7 +483,7 @@ export default {
         venta_directa: {
           title: "Bono de venta directa",
           help:
-            "Se genera cuando un cliente preferente compra productos. El sistema registra un evento de comisión 'venta_directa' para el patrocinador.",
+            "Se genera cuando un cliente preferente compra productos. El patrocinador recibe el 10% del precio público por unidad en su billetera (comisión venta directa).",
           types: ["venta_directa"],
         },
         binary: {

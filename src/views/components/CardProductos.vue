@@ -6,6 +6,15 @@ import ArgonButton from "@/components/ArgonButton.vue";
 import { fetchProductsCatalog, createOrder, fetchProfile, fetchFounderStatus } from "@/services/me";
 import { useMlmLiveRefresh } from "@/composables/useMlmLiveRefresh";
 import MlmPaymentMethodPanel from "@/components/MlmPaymentMethodPanel.vue";
+import OrderDeliveryPanel from "@/components/OrderDeliveryPanel.vue";
+import {
+  DELIVERY_MODE_PICKUP,
+  DELIVERY_MODE_SHIPPING,
+  MEMBER_SHIPPING_COST_BOB,
+  emptyShippingAddress,
+  isShippingAddressComplete,
+} from "@/constants/deliveryOptions";
+import { publicPriceFromProduct } from "@/utils/preferredCustomerPricing";
 
 /**
  * Imágenes locales fallback (cuando el producto no trae image_url).
@@ -60,6 +69,8 @@ const paymentMethodOffline = ref("efectivo");
 const paymentMethodImmediate = ref("online"); // online | wallet | wallet_token
 const paymentUserToken = ref("");
 const cartJumpPulse = ref(false);
+const deliveryMode = ref(DELIVERY_MODE_PICKUP);
+const shippingAddress = ref(emptyShippingAddress());
 
 // Paquete Fundador (progreso a 1200 PV)
 const founderLoading = ref(false);
@@ -175,15 +186,14 @@ function imagenFor(product, index) {
 
 function mapApiProduct(p, index) {
   const precioSocio = Number(p.price);
-  const precioClienteRaw = p.price_cliente_preferente != null ? Number(p.price_cliente_preferente) : precioSocio * 1.2;
-  const precioCliente = Math.round(precioClienteRaw * 100) / 100;
+  const precioPublico = publicPriceFromProduct(p);
   return {
     id: p.id,
     product_id: p.id,
     nombre: p.name,
     descripcion: p.description || "—",
     imagen: imagenFor(p, index),
-    precioCliente,
+    precioCliente: precioPublico,
     precioSocio,
     puntosValor: Number(p.pv_points || 0),
     categoria: p.category?.name || "General",
@@ -312,6 +322,20 @@ const totalPedido = computed(() =>
   carrito.value.reduce((sum, it) => sum + Number(it.precioSocio || 0) * Number(it.cantidad || 0), 0)
 );
 
+const shippingCost = computed(() =>
+  deliveryMode.value === DELIVERY_MODE_SHIPPING ? MEMBER_SHIPPING_COST_BOB : 0
+);
+
+const totalPedidoConEnvio = computed(() => totalPedido.value + shippingCost.value);
+
+const canConfirmarPedido = computed(() => {
+  if (!carrito.value.length) return false;
+  if (deliveryMode.value === DELIVERY_MODE_SHIPPING) {
+    return isShippingAddressComplete(shippingAddress.value);
+  }
+  return true;
+});
+
 watch(
   carrito,
   () => {
@@ -356,7 +380,7 @@ function inferTipoPedido() {
 async function confirmarPedido() {
   checkoutErr.value = "";
   checkoutMsg.value = "";
-  if (!carrito.value.length) return;
+  if (!carrito.value.length || !canConfirmarPedido.value) return;
   checkoutLoading.value = true;
   try {
     const items = carrito.value.map((it) => {
@@ -374,13 +398,21 @@ async function confirmarPedido() {
       payment_settlement: paymentSettlement.value,
       payment_method:
         paymentSettlement.value === "manual" ? paymentMethodOffline.value : paymentMethodImmediate.value,
+      delivery_mode: deliveryMode.value,
       items,
     };
+    if (deliveryMode.value === DELIVERY_MODE_SHIPPING) {
+      payload.shipping_departamento = shippingAddress.value.departamento.trim();
+      payload.shipping_ciudad = shippingAddress.value.ciudad.trim();
+      payload.shipping_direccion = shippingAddress.value.direccion.trim();
+    }
     if (paymentSettlement.value === "immediate" && paymentMethodImmediate.value === "wallet_token") {
       payload.payment_token = paymentUserToken.value.trim();
     }
     const order = await createOrder(payload);
     carrito.value = [];
+    deliveryMode.value = DELIVERY_MODE_PICKUP;
+    shippingAddress.value = emptyShippingAddress();
     checkoutMsg.value =
       order?.estado === "pendiente_pago"
         ? "Pedido registrado como pendiente de pago. La empresa confirmará tu pago (QR/transferencia/efectivo)."
@@ -849,6 +881,19 @@ async function añadirFundadorAlCarrito(pkgKey) {
             </table>
           </div>
           <div class="card-footer bg-transparent border-0 pt-0 pb-3">
+            <div class="px-3 mb-3">
+              <OrderDeliveryPanel
+                v-model="deliveryMode"
+                :departamento="shippingAddress.departamento"
+                :ciudad="shippingAddress.ciudad"
+                :direccion="shippingAddress.direccion"
+                @update:departamento="shippingAddress.departamento = $event"
+                @update:ciudad="shippingAddress.ciudad = $event"
+                @update:direccion="shippingAddress.direccion = $event"
+                :show-shipping-cost="true"
+                :shipping-cost-bob="MEMBER_SHIPPING_COST_BOB"
+              />
+            </div>
             <div class="row g-2 mb-3">
               <div class="col-md-6">
                 <label class="form-label text-xs text-muted mb-1">Forma de pago</label>
@@ -890,8 +935,16 @@ async function añadirFundadorAlCarrito(pkgKey) {
             </div>
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
               <div class="text-sm">
-                <span class="text-secondary">Total Bs.:</span>
+                <span class="text-secondary">Subtotal Bs.:</span>
                 <strong class="text-dark ms-1">{{ formatearPrecio(totalPedido) }}</strong>
+              </div>
+              <div v-if="shippingCost > 0" class="text-sm">
+                <span class="text-secondary">Envío:</span>
+                <strong class="text-dark ms-1">{{ formatearPrecio(shippingCost) }}</strong>
+              </div>
+              <div class="text-sm">
+                <span class="text-secondary">Total Bs.:</span>
+                <strong class="text-dark ms-1">{{ formatearPrecio(totalPedidoConEnvio) }}</strong>
               </div>
                <div class="text-sm">
                 <span class="text-secondary">Total PVs:</span>
@@ -901,12 +954,18 @@ async function añadirFundadorAlCarrito(pkgKey) {
                 color="success"
                 variant="gradient"
                 size="sm"
-                :disabled="checkoutLoading"
+                :disabled="checkoutLoading || !canConfirmarPedido"
                 @click="confirmarPedido"
               >
                 {{ checkoutLoading ? "Procesando…" : "Confirmar pedido" }}
               </argon-button>
             </div>
+            <p
+              v-if="deliveryMode === DELIVERY_MODE_SHIPPING && !canConfirmarPedido && carrito.length"
+              class="text-danger text-sm mt-2 mb-0 px-3"
+            >
+              Completa departamento, ciudad y dirección para continuar con el envío.
+            </p>
             <p v-if="checkoutErr" class="text-danger text-sm mt-2 mb-0">{{ checkoutErr }}</p>
             <p v-if="checkoutMsg" class="text-success text-sm mt-2 mb-0">{{ checkoutMsg }}</p>
           </div>
