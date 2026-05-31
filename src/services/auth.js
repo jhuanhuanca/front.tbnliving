@@ -14,7 +14,6 @@ export function parseAuthPayload(data) {
 }
 
 export async function login({ email, password, country_code, device_name }) {
-  await ensureCsrfCookie();
   const res = await api.post("/auth/login", {
     email,
     password,
