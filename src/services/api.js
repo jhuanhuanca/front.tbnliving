@@ -25,15 +25,17 @@ const api = axios.create({
 api.interceptors.request.use(async (config) => {
   const method = (config.method || "get").toLowerCase();
   const needsCsrf = ["post", "put", "patch", "delete"].includes(method);
-
-  if (needsCsrf && config.withCredentials) {
-    await ensureCsrfCookie();
-  }
-
   const token = localStorage.getItem("token");
+
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  // CSRF solo sin Bearer (login/registro). Rutas autenticadas usan token Sanctum.
+  if (needsCsrf && config.withCredentials && !token) {
+    await ensureCsrfCookie();
+  }
+
   return config;
 });
 
@@ -44,7 +46,7 @@ api.interceptors.response.use(
     const config = error.config;
     const url = String(error.config?.url || "");
 
-    if (status === 419 && config && !config.__csrfRetried) {
+    if (status === 419 && config && !config.__csrfRetried && !localStorage.getItem("token")) {
       resetCsrfCookie();
       await ensureCsrfCookie();
       config.__csrfRetried = true;
