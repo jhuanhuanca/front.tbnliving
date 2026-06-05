@@ -1,6 +1,5 @@
 <script setup>
 import { computed, ref, onMounted } from "vue";
-import { useStore } from "vuex";
 import ArgonButton from "@/components/ArgonButton.vue";
 import MlmPaymentMethodPanel from "@/components/MlmPaymentMethodPanel.vue";
 import { fetchEvents, fetchNews, createEventRegistration } from "@/services/events";
@@ -9,8 +8,6 @@ import {
   paymentMethodAcceptsReceipt,
   RECEIPT_REQUIRED_MESSAGE,
 } from "@/utils/orderPaymentProof";
-
-const store = useStore();
 
 const loading = ref(true);
 const err = ref("");
@@ -21,9 +18,6 @@ const cart = ref([]);
 const checkoutLoading = ref(false);
 const paymentMethod = ref("transferencia");
 const paymentReceiptFile = ref(null);
-const paymentSettlement = computed(() =>
-  cartRequiresPayment.value ? "manual" : "immediate"
-);
 
 const cartRequiresPayment = computed(() =>
   cart.value.some((it) => it.event?.requires_payment)
