@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onBeforeUnmount, onBeforeMount } from "vue";
+import { ref, computed, onBeforeUnmount, onBeforeMount, onMounted } from "vue";
 import { useStore } from "vuex";
 import { useRouter, useRoute } from "vue-router";
 import Navbar from "@/examples/PageLayout/Navbar.vue";
@@ -8,6 +8,14 @@ import ArgonSwitch from "@/components/ArgonSwitch.vue";
 import ArgonButton from "@/components/ArgonButton.vue";
 import { login as authLogin } from "@/services/auth";
 import { LATAM_COUNTRIES } from "@/constants/latamCountries";
+import {
+  MAX_LOGIN_ATTEMPTS,
+  LOCKOUT_MINUTES,
+  getLoginLockoutState,
+  recordFailedLoginAttempt,
+  clearLoginLockout,
+  isWrongCredentialsError,
+} from "@/utils/loginLockout";
 
 const body = document.getElementsByTagName("body")[0];
 const store = useStore();
@@ -19,6 +27,15 @@ const password = ref("");
 const rememberMe = ref(false);
 const countryCode = ref("BO");
 const error = ref("");
+const lockoutTick = ref(Date.now());
+let lockoutTimer = null;
+
+const lockoutState = computed(() => {
+  lockoutTick.value;
+  return getLoginLockoutState(email.value);
+});
+
+const isLoginBlocked = computed(() => lockoutState.value.isLocked);
 
 onBeforeMount(() => {
   store.state.hideConfigButton = true;
@@ -34,10 +51,29 @@ onBeforeUnmount(() => {
   store.state.showSidenav = true;
   store.state.showFooter = true;
   body.classList.add("bg-gray-100");
+  if (lockoutTimer) {
+    clearInterval(lockoutTimer);
+    lockoutTimer = null;
+  }
+});
+
+onMounted(() => {
+  lockoutTimer = setInterval(() => {
+    if (getLoginLockoutState(email.value).isLocked) {
+      lockoutTick.value = Date.now();
+    }
+  }, 1000);
 });
 
 const login = async () => {
   error.value = "";
+
+  const blocked = getLoginLockoutState(email.value);
+  if (blocked.isLocked) {
+    error.value = blocked.message;
+    return;
+  }
+
   try {
     const { token, user } = await authLogin({
       email: email.value.trim(),
@@ -46,6 +82,7 @@ const login = async () => {
     });
 
     if (token) {
+      clearLoginLockout(email.value);
       await store.dispatch("auth/setAuth", { user, token });
       const redir = route.query.redirect;
       if (typeof redir === "string" && redir.startsWith("/")) {
@@ -61,6 +98,20 @@ const login = async () => {
       error.value = "Credenciales incorrectas.";
     }
   } catch (e) {
+    if (isWrongCredentialsError(e)) {
+      const next = recordFailedLoginAttempt(email.value);
+      lockoutTick.value = Date.now();
+      if (next.isLocked) {
+        error.value = next.message;
+        return;
+      }
+      const restantes = next.attemptsRemaining;
+      error.value =
+        restantes === 1
+          ? "Credenciales incorrectas. Te queda 1 intento antes del bloqueo temporal."
+          : `Credenciales incorrectas. Te quedan ${restantes} intentos.`;
+      return;
+    }
     if (e.response?.status === 403 && e.response?.data?.code === "email_unverified") {
       error.value =
         "Debes confirmar tu correo antes de entrar. Revisa tu bandeja o solicita un nuevo enlace en «Verificar correo».";
@@ -111,53 +162,72 @@ const login = async () => {
               </div>
               <div class="card-body px-4 pb-4 pt-3">
                 <form @submit.prevent="login" class="auth-form">
-                  <div class="mb-3">
-                    <label class="form-label text-sm text-muted mb-1">País</label>
-                    <select v-model="countryCode" class="form-select">
-                      <option v-for="c in LATAM_COUNTRIES" :key="c.code" :value="c.code">
-                        {{ c.flag }} {{ c.name }}
-                      </option>
-                    </select>
-                  </div>
-                  <div class="mb-3">
-                    <label class="form-label text-sm text-muted mb-1">Correo electrónico</label>
-                    <argon-input v-model="email" id="email" type="email" placeholder="correo@ejemplo.com" size="lg" />
-                  </div>
-                  <div class="mb-3">
-                    <div class="d-flex justify-content-between align-items-center mb-1">
-                      <label class="form-label text-sm text-muted mb-0">Contraseña</label>
-                      <router-link to="/recuperar" class="text-xxs text-success font-weight-bold">
-                        ¿Olvidaste tu contraseña?
-                      </router-link>
-                    </div>
-                    <argon-input
-                      v-model="password"
-                      id="password"
-                      type="password"
-                      placeholder="••••••••"
-                      size="lg"
-                      show-password-toggle
-                      autocomplete="current-password"
-                    />
-                  </div>
-                  <argon-switch
-                    :checked="rememberMe"
-                    id="rememberMe"
-                    name="remember-me"
-                    @change="rememberMe = $event.target.checked"
+                  <div
+                    v-if="isLoginBlocked"
+                    class="alert alert-warning text-dark text-sm py-2 mb-3"
+                    role="status"
                   >
-                    Recordarme en este equipo
-                  </argon-switch>
-
-                  <div v-if="error" class="alert alert-danger text-white text-sm py-2 mt-3 mb-0" role="alert">
-                    {{ error }}
+                    {{ lockoutState.message }}
                   </div>
+                  <p v-else-if="lockoutState.attempts > 0" class="text-xs text-warning mb-3">
+                    Intentos fallidos: {{ lockoutState.attempts }}/{{ MAX_LOGIN_ATTEMPTS }}.
+                    Tras {{ MAX_LOGIN_ATTEMPTS }} fallos el acceso se bloquea {{ LOCKOUT_MINUTES }} minutos.
+                  </p>
+                  <fieldset :disabled="isLoginBlocked" class="auth-form__fields border-0 p-0 m-0">
+                    <div class="mb-3">
+                      <label class="form-label text-sm text-muted mb-1">País</label>
+                      <select v-model="countryCode" class="form-select">
+                        <option v-for="c in LATAM_COUNTRIES" :key="c.code" :value="c.code">
+                          {{ c.flag }} {{ c.name }}
+                        </option>
+                      </select>
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label text-sm text-muted mb-1">Correo electrónico</label>
+                      <argon-input
+                        v-model="email"
+                        id="email"
+                        type="email"
+                        placeholder="correo@ejemplo.com"
+                        size="lg"
+                      />
+                    </div>
+                    <div class="mb-3">
+                      <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label text-sm text-muted mb-0">Contraseña</label>
+                        <router-link to="/recuperar" class="text-xxs text-success font-weight-bold">
+                          ¿Olvidaste tu contraseña?
+                        </router-link>
+                      </div>
+                      <argon-input
+                        v-model="password"
+                        id="password"
+                        type="password"
+                        placeholder="••••••••"
+                        size="lg"
+                        show-password-toggle
+                        autocomplete="current-password"
+                      />
+                    </div>
+                    <argon-switch
+                      :checked="rememberMe"
+                      id="rememberMe"
+                      name="remember-me"
+                      @change="rememberMe = $event.target.checked"
+                    >
+                      Recordarme en este equipo
+                    </argon-switch>
 
-                  <div class="d-grid gap-2 mt-4">
-                    <argon-button variant="gradient" color="success" fullWidth size="lg" type="submit">
-                      Entrar al panel
-                    </argon-button>
-                  </div>
+                    <div v-if="error" class="alert alert-danger text-white text-sm py-2 mt-3 mb-0" role="alert">
+                      {{ error }}
+                    </div>
+
+                    <div class="d-grid gap-2 mt-4">
+                      <argon-button variant="gradient" color="success" fullWidth size="lg" type="submit">
+                        {{ isLoginBlocked ? "Acceso bloqueado" : "Entrar al panel" }}
+                      </argon-button>
+                    </div>
+                  </fieldset>
 
                   <p class="text-xs text-secondary mt-3 mb-0 text-center">
                     <router-link to="/verificar-correo" class="text-primary font-weight-bold"
@@ -198,6 +268,9 @@ const login = async () => {
 .auth-form :deep(.form-control),
 .auth-form :deep(.input-group) {
   border-radius: 0.5rem;
+}
+.auth-form__fields:disabled {
+  opacity: 0.72;
 }
 .text-xxs {
   font-size: 0.72rem;
