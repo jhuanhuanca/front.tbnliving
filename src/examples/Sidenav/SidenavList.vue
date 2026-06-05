@@ -338,7 +338,7 @@ async function cerrarSesion() {
               </router-link>
             </li>
             <li class="nav-item">
-              <router-link to="/submod2" class="nav-link">
+              <router-link to="/eventos" class="nav-link">
                 <i class="ni ni-settings-gear-65 text-info"></i>
                 <span class="sidenav-normal ms-2 text-truncate" style="color: #16A34A">Noticias y Eventos</span>
               </router-link>

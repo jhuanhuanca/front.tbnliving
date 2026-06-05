@@ -5,6 +5,7 @@
 import { ref, computed, watch } from "vue";
 import { SHIPPING_NOTICE_LOCAL, SHIPPING_NOTICE_NATIONAL } from "@/constants/shippingNotice";
 import { REGISTRATION_PAYMENT_METHODS } from "@/constants/registrationPayments";
+import { paymentMethodRequiresReceipt } from "@/utils/orderPaymentProof";
 import qrImageUrl from "@/assets/img/QRimage.jpeg";
 
 const qrSrc = computed(() => (typeof qrImageUrl === "string" ? qrImageUrl : qrImageUrl?.default || ""));
@@ -32,7 +33,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(["update:modelValue", "update:walletToken"]);
+const emit = defineEmits(["update:modelValue", "update:walletToken", "update:receiptFile"]);
 
 const method = computed({
   get: () => props.modelValue,
@@ -45,6 +46,7 @@ const tokenInput = computed({
 });
 
 const receiptFileName = ref("");
+const receiptFile = ref(null);
 const cardNumber = ref("");
 const cardName = ref("");
 const cardExpiry = ref("");
@@ -54,12 +56,21 @@ watch(
   () => props.modelValue,
   () => {
     cardSimulated.value = false;
+    clearReceipt();
   }
 );
 
 function onReceiptChange(e) {
-  const f = e.target?.files?.[0];
+  const f = e.target?.files?.[0] || null;
+  receiptFile.value = f;
   receiptFileName.value = f ? f.name : "";
+  emit("update:receiptFile", f);
+}
+
+function clearReceipt() {
+  receiptFile.value = null;
+  receiptFileName.value = "";
+  emit("update:receiptFile", null);
 }
 
 function simulateCardOk() {
@@ -70,6 +81,12 @@ function simulateCardOk() {
 }
 
 const paymentOptions = REGISTRATION_PAYMENT_METHODS;
+
+const receiptRequired = computed(() => paymentMethodRequiresReceipt(method.value));
+
+const receiptMissing = computed(() => receiptRequired.value && !receiptFile.value);
+
+defineExpose({ receiptFile, clearReceipt, receiptRequired, receiptMissing });
 </script>
 
 <template>
@@ -105,11 +122,20 @@ const paymentOptions = REGISTRATION_PAYMENT_METHODS;
           <li><strong>Titular:</strong> Empresa</li>
         </ul>
         <p class="text-xs text-muted mb-2">
-          Después de transferir, sube el comprobante (captura o PDF).
+          Después de transferir, sube el comprobante (captura o PDF). <strong class="text-danger">Obligatorio.</strong>
         </p>
-        <label class="form-label text-xs">Comprobante</label>
-        <input type="file" class="form-control form-control-sm" accept="image/*,.pdf" @change="onReceiptChange" />
+        <label class="form-label text-xs">
+          Comprobante <span v-if="receiptRequired" class="text-danger">*</span>
+        </label>
+        <input
+          type="file"
+          class="form-control form-control-sm"
+          accept="image/*,.pdf"
+          :required="receiptRequired"
+          @change="onReceiptChange"
+        />
         <p v-if="receiptFileName" class="text-success text-xs mt-1 mb-0">Archivo: {{ receiptFileName }}</p>
+        <p v-else-if="receiptMissing" class="text-danger text-xs mt-1 mb-0">Adjunta el comprobante para continuar.</p>
       </div>
 
       <!-- Billetera propia -->
@@ -143,9 +169,18 @@ const paymentOptions = REGISTRATION_PAYMENT_METHODS;
         <div class="d-inline-block p-2 bg-white rounded shadow-sm mb-3">
           <img :src="qrSrc" alt="QR de pago" style="width: 180px; height: 180px; object-fit: contain" />
         </div>
-        <label class="form-label text-xs d-block text-start">Adjuntar comprobante de escaneo</label>
-        <input type="file" class="form-control form-control-sm" accept="image/*" @change="onReceiptChange" />
+        <label class="form-label text-xs d-block text-start">
+          Adjuntar comprobante de escaneo <span v-if="receiptRequired" class="text-danger">*</span>
+        </label>
+        <input
+          type="file"
+          class="form-control form-control-sm"
+          accept="image/*,.pdf"
+          :required="receiptRequired"
+          @change="onReceiptChange"
+        />
         <p v-if="receiptFileName" class="text-success text-xs mt-1 mb-0">Archivo: {{ receiptFileName }}</p>
+        <p v-else-if="receiptMissing" class="text-danger text-xs mt-1 mb-0">Adjunta el comprobante para continuar.</p>
       </div>
 
       <!-- Tarjeta -->

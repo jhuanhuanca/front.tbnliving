@@ -109,8 +109,34 @@ export function fetchProductsCatalog() {
   return api.get("/products").then((r) => r.data);
 }
 
-export function createOrder(payload) {
-  return api.post("/orders", payload).then((r) => r.data);
+function appendOrderFormFields(form, payload) {
+  Object.entries(payload).forEach(([key, val]) => {
+    if (key === "items" && Array.isArray(val)) {
+      val.forEach((item, index) => {
+        Object.entries(item).forEach(([itemKey, itemVal]) => {
+          if (itemVal != null && itemVal !== "") {
+            form.append(`items[${index}][${itemKey}]`, String(itemVal));
+          }
+        });
+      });
+      return;
+    }
+    if (val != null && val !== "") {
+      form.append(key, String(val));
+    }
+  });
+}
+
+export function createOrder(payload, paymentProofFile = null) {
+  if (!paymentProofFile) {
+    return api.post("/orders", payload).then((r) => r.data);
+  }
+
+  const form = new FormData();
+  appendOrderFormFields(form, payload);
+  form.append("payment_proof", paymentProofFile);
+
+  return api.post("/orders", form).then((r) => r.data);
 }
 
 export function postBinaryPlacement(payload = {}) {

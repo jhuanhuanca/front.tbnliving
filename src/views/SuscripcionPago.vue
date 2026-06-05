@@ -6,6 +6,11 @@ import ArgonButton from "@/components/ArgonButton.vue";
 import MlmPaymentMethodPanel from "@/components/MlmPaymentMethodPanel.vue";
 import { fetchPackages, createOrder, fetchProfile, fetchOrders } from "@/services/me";
 import { REGISTRATION_PAYMENT_METHODS } from "@/constants/registrationPayments";
+import {
+  hasValidPaymentReceipt,
+  paymentMethodAcceptsReceipt,
+  RECEIPT_REQUIRED_MESSAGE,
+} from "@/utils/orderPaymentProof";
 
 const store = useStore();
 const router = useRouter();
@@ -18,6 +23,7 @@ const checkoutLoading = ref(false);
 const err = ref("");
 const infoMsg = ref("");
 const paymentMethod = ref("tarjeta");
+const paymentReceiptFile = ref(null);
 const paymentOptions = REGISTRATION_PAYMENT_METHODS;
 const hasPendingActivation = ref(false);
 const pendingOrderId = ref(null);
@@ -100,6 +106,10 @@ onMounted(async () => {
   }, 12000);
 });
 
+const canConfirmActivation = computed(
+  () => hasValidPaymentReceipt(paymentMethod.value, paymentReceiptFile.value) && !hasPendingActivation.value
+);
+
 async function confirmarActivacion() {
   err.value = "";
   infoMsg.value = "";
@@ -112,14 +122,22 @@ async function confirmarActivacion() {
     err.value = "Selecciona un paquete.";
     return;
   }
+  if (!hasValidPaymentReceipt(paymentMethod.value, paymentReceiptFile.value)) {
+    err.value = RECEIPT_REQUIRED_MESSAGE;
+    return;
+  }
   checkoutLoading.value = true;
   try {
-    const order = await createOrder({
-      tipo: "paquete",
-      items: [{ package_id: parseInt(selectedId.value, 10), cantidad: 1 }],
-      payment_settlement: paymentSettlement.value,
-      payment_method: paymentMethod.value,
-    });
+    const order = await createOrder(
+      {
+        tipo: "paquete",
+        items: [{ package_id: parseInt(selectedId.value, 10), cantidad: 1 }],
+        payment_settlement: paymentSettlement.value,
+        payment_method: paymentMethod.value,
+      },
+      paymentMethodAcceptsReceipt(paymentMethod.value) ? paymentReceiptFile.value : null
+    );
+    paymentReceiptFile.value = null;
     const u = await fetchProfile();
     await store.dispatch("auth/setAuth", {
       user: u,
@@ -144,7 +162,8 @@ async function confirmarActivacion() {
         e.response?.data?.message ||
         "Ya existe una activación pendiente de confirmación por Administración. Evita confirmar reiteradamente.";
     } else {
-      err.value = e.response?.data?.message || "No se pudo registrar el pedido.";
+      const proofErr = e.response?.data?.errors?.payment_proof?.[0];
+      err.value = proofErr || e.response?.data?.message || "No se pudo registrar el pedido.";
     }
   } finally {
     checkoutLoading.value = false;
@@ -194,16 +213,23 @@ async function confirmarActivacion() {
                 :show-method-select="false"
                 title="Instrucciones de pago y entrega"
                 class="mb-3"
+                @update:receiptFile="paymentReceiptFile = $event"
               />
               <div v-if="selectedPkg" class="alert alert-light border text-sm mb-3">
                 <strong>{{ selectedPkg.name }}</strong><br />
                 PV: {{ selectedPkg.pv_points }} · Precio: Bs. {{ selectedPkg.price }}
               </div>
+              <p
+                v-if="!hasValidPaymentReceipt(paymentMethod, paymentReceiptFile) && !hasPendingActivation"
+                class="text-danger text-xs mb-2"
+              >
+                {{ RECEIPT_REQUIRED_MESSAGE }}
+              </p>
               <argon-button
                 color="success"
                 variant="gradient"
                 class="w-100"
-                :disabled="checkoutLoading || !packagesList.length || hasPendingActivation"
+                :disabled="checkoutLoading || !packagesList.length || !canConfirmActivation"
                 @click="confirmarActivacion"
               >
                 <template v-if="hasPendingActivation">Activación pendiente (Admin)</template>

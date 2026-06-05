@@ -7,16 +7,18 @@ import GradientLineChart from "@/examples/Charts/GradientLineChart.vue";
 import Carousel from "./components/Carousel.vue";
 import CategoriesList from "./components/CategoriesList.vue";
 import { fetchDashboard, fetchProfile } from "@/services/me";
+import { fetchEvents } from "@/services/events";
 import { useMlmLiveRefresh } from "@/composables/useMlmLiveRefresh";
 import { getEffectiveRankName } from "@/utils/mlm";
 
 const store = useStore();
 
 /** Soporte WhatsApp (Bolivia): número sin + para wa.me */
-const SUPPORT_WA_PHONE = "59169795474";
+const SUPPORT_WA_PHONE = "591 67024326";
 
 const supportOpen = ref(false);
 const supportText = ref("");
+const carouselEvents = ref([]);
 
 function toggleSupport() {
   supportOpen.value = !supportOpen.value;
@@ -309,6 +311,11 @@ onMounted(async () => {
       user: prof,
       token: localStorage.getItem("token"),
     });
+    try {
+      carouselEvents.value = await fetchEvents();
+    } catch {
+      carouselEvents.value = [];
+    }
   } catch {
     loadError.value = "No se pudo cargar el panel. Verifica el servidor y tu sesión.";
     dashboard.value = null;
@@ -625,7 +632,7 @@ onMounted(async () => {
           </div>
           <div class="col-lg-5 col-12 mb-4 mb-lg-0">
             <div class="card border-0 shadow-sm h-100 overflow-hidden dashboard-home__lift">
-              <carousel />
+              <carousel :events="carouselEvents" />
             </div>
           </div>
         </div>

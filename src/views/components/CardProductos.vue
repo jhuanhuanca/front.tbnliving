@@ -15,6 +15,11 @@ import {
   isShippingAddressComplete,
 } from "@/constants/deliveryOptions";
 import { publicPriceFromProduct } from "@/utils/preferredCustomerPricing";
+import {
+  hasValidPaymentReceipt,
+  paymentMethodAcceptsReceipt,
+  RECEIPT_REQUIRED_MESSAGE,
+} from "@/utils/orderPaymentProof";
 
 /**
  * Imágenes locales fallback (cuando el producto no trae image_url).
@@ -67,6 +72,7 @@ const checkoutErr = ref("");
 const paymentSettlement = ref("immediate");
 const paymentMethodOffline = ref("efectivo");
 const paymentMethodImmediate = ref("online"); // online | wallet | wallet_token
+const paymentReceiptFile = ref(null);
 const paymentUserToken = ref("");
 const cartJumpPulse = ref(false);
 const deliveryMode = ref(DELIVERY_MODE_PICKUP);
@@ -328,10 +334,20 @@ const shippingCost = computed(() =>
 
 const totalPedidoConEnvio = computed(() => totalPedido.value + shippingCost.value);
 
+const activePaymentMethod = computed(() =>
+  paymentSettlement.value === "manual" ? paymentMethodOffline.value : paymentMethodImmediate.value
+);
+
 const canConfirmarPedido = computed(() => {
   if (!carrito.value.length) return false;
-  if (deliveryMode.value === DELIVERY_MODE_SHIPPING) {
-    return isShippingAddressComplete(shippingAddress.value);
+  if (deliveryMode.value === DELIVERY_MODE_SHIPPING && !isShippingAddressComplete(shippingAddress.value)) {
+    return false;
+  }
+  if (
+    paymentSettlement.value === "manual" &&
+    !hasValidPaymentReceipt(activePaymentMethod.value, paymentReceiptFile.value)
+  ) {
+    return false;
   }
   return true;
 });
@@ -380,7 +396,12 @@ function inferTipoPedido() {
 async function confirmarPedido() {
   checkoutErr.value = "";
   checkoutMsg.value = "";
-  if (!carrito.value.length || !canConfirmarPedido.value) return;
+  if (!carrito.value.length) return;
+  if (!hasValidPaymentReceipt(activePaymentMethod.value, paymentReceiptFile.value)) {
+    checkoutErr.value = RECEIPT_REQUIRED_MESSAGE;
+    return;
+  }
+  if (!canConfirmarPedido.value) return;
   checkoutLoading.value = true;
   try {
     const items = carrito.value.map((it) => {
@@ -409,7 +430,10 @@ async function confirmarPedido() {
     if (paymentSettlement.value === "immediate" && paymentMethodImmediate.value === "wallet_token") {
       payload.payment_token = paymentUserToken.value.trim();
     }
-    const order = await createOrder(payload);
+    const method = activePaymentMethod.value;
+    const proofFile = paymentMethodAcceptsReceipt(method) ? paymentReceiptFile.value : null;
+    const order = await createOrder(payload, proofFile);
+    paymentReceiptFile.value = null;
     carrito.value = [];
     deliveryMode.value = DELIVERY_MODE_PICKUP;
     shippingAddress.value = emptyShippingAddress();
@@ -421,7 +445,8 @@ async function confirmarPedido() {
     await syncProfilePv();
     await loadFounderStatus();
   } catch (e) {
-    checkoutErr.value = e.response?.data?.message || "No se pudo crear el pedido.";
+    const proofErr = e.response?.data?.errors?.payment_proof?.[0];
+    checkoutErr.value = proofErr || e.response?.data?.message || "No se pudo crear el pedido.";
   } finally {
     checkoutLoading.value = false;
   }
@@ -930,6 +955,7 @@ async function añadirFundadorAlCarrito(pkgKey) {
                   v-model="paymentMethodOffline"
                   :show-method-select="false"
                   title="Instrucciones de pago y entrega"
+                  @update:receiptFile="paymentReceiptFile = $event"
                 />
               </div>
             </div>
@@ -965,6 +991,16 @@ async function añadirFundadorAlCarrito(pkgKey) {
               class="text-danger text-sm mt-2 mb-0 px-3"
             >
               Completa departamento, ciudad y dirección para continuar con el envío.
+            </p>
+            <p
+              v-if="
+                carrito.length &&
+                paymentSettlement === 'manual' &&
+                !hasValidPaymentReceipt(activePaymentMethod, paymentReceiptFile)
+              "
+              class="text-danger text-sm mt-2 mb-0 px-3"
+            >
+              {{ RECEIPT_REQUIRED_MESSAGE }}
             </p>
             <p v-if="checkoutErr" class="text-danger text-sm mt-2 mb-0">{{ checkoutErr }}</p>
             <p v-if="checkoutMsg" class="text-success text-sm mt-2 mb-0">{{ checkoutMsg }}</p>

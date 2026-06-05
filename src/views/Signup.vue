@@ -9,7 +9,8 @@ import ArgonButton from "@/components/ArgonButton.vue";
 import { registerMember } from "@/services/auth";
 import { allApiErrorMessages } from "@/utils/apiErrors";
 import { buildMemberRegisterPayload } from "@/utils/registerPayload";
-import { persistReferralSponsor, readReferralSponsor } from "@/utils/referralStorage";
+import { persistReferralSponsor, readReferralSponsor, persistReferralBinaryLeg, readReferralBinaryLeg } from "@/utils/referralStorage";
+import { normalizeBinaryLegParam } from "@/utils/referralLink";
 import { fetchSponsorByCode } from "@/services/sponsor";
 import { fetchPackages } from "@/services/me";
 import { LATAM_COUNTRIES } from "@/constants/latamCountries";
@@ -154,6 +155,23 @@ function applySponsorFromRoute() {
   }
 }
 
+function applyBinaryLegFromRoute() {
+  const raw =
+    route.query.leg || route.query.pierna || route.query.binary_leg || route.query.preferred_binary_leg;
+  if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
+    const leg = normalizeBinaryLegParam(raw);
+    if (leg) {
+      preferredBinaryLeg.value = leg;
+      persistReferralBinaryLeg(leg);
+      return;
+    }
+  }
+  const storedLeg = readReferralBinaryLeg();
+  if (storedLeg) {
+    preferredBinaryLeg.value = storedLeg;
+  }
+}
+
 onMounted(async () => {
   let savedId = "";
   let savedCode = "";
@@ -169,6 +187,7 @@ onMounted(async () => {
   }
 
   applySponsorFromRoute();
+  applyBinaryLegFromRoute();
   if (sponsorReferralCode.value) {
     validateSponsor();
   }
@@ -270,6 +289,18 @@ watch(
     if (sponsorReferralCode.value) {
       validateSponsor();
     }
+  }
+);
+
+watch(
+  () => [
+    route.query.leg,
+    route.query.pierna,
+    route.query.binary_leg,
+    route.query.preferred_binary_leg,
+  ],
+  () => {
+    applyBinaryLegFromRoute();
   }
 );
 

@@ -16,6 +16,11 @@ import {
   publicPriceFromProduct,
   sponsorCommissionFromProduct,
 } from "@/utils/preferredCustomerPricing";
+import {
+  hasValidPaymentReceipt,
+  paymentMethodAcceptsReceipt,
+  RECEIPT_REQUIRED_MESSAGE,
+} from "@/utils/orderPaymentProof";
 
 const store = useStore();
 const loading = ref(true);
@@ -26,6 +31,7 @@ const carrito = ref([]);
 const checkoutLoading = ref(false);
 const checkoutMsg = ref("");
 const paymentMethod = ref("transferencia");
+const paymentReceiptFile = ref(null);
 const deliveryMode = ref(DELIVERY_MODE_PICKUP);
 const shippingAddress = ref(emptyShippingAddress());
 
@@ -77,8 +83,11 @@ const totalCarrito = computed(() =>
 
 const canCheckout = computed(() => {
   if (!carrito.value.length) return false;
-  if (deliveryMode.value === DELIVERY_MODE_SHIPPING) {
-    return isShippingAddressComplete(shippingAddress.value);
+  if (deliveryMode.value === DELIVERY_MODE_SHIPPING && !isShippingAddressComplete(shippingAddress.value)) {
+    return false;
+  }
+  if (!hasValidPaymentReceipt(paymentMethod.value, paymentReceiptFile.value)) {
+    return false;
   }
   return true;
 });
@@ -135,9 +144,15 @@ async function load() {
 onMounted(load);
 
 async function checkout() {
+  checkoutMsg.value = "";
+  err.value = "";
+  if (!carrito.value.length) return;
+  if (!hasValidPaymentReceipt(paymentMethod.value, paymentReceiptFile.value)) {
+    err.value = RECEIPT_REQUIRED_MESSAGE;
+    return;
+  }
   if (!canCheckout.value) return;
   checkoutLoading.value = true;
-  checkoutMsg.value = "";
   try {
     const payload = {
       tipo: "producto",
@@ -154,7 +169,11 @@ async function checkout() {
       payload.shipping_ciudad = shippingAddress.value.ciudad.trim();
       payload.shipping_direccion = shippingAddress.value.direccion.trim();
     }
-    const order = await createOrder(payload);
+    const order = await createOrder(
+      payload,
+      paymentMethodAcceptsReceipt(paymentMethod.value) ? paymentReceiptFile.value : null,
+    );
+    paymentReceiptFile.value = null;
     carrito.value = [];
     deliveryMode.value = DELIVERY_MODE_PICKUP;
     shippingAddress.value = emptyShippingAddress();
@@ -166,7 +185,8 @@ async function checkout() {
           : "Compra registrada. Tu factura se generará al confirmar el pago.";
     await load();
   } catch (e) {
-    checkoutMsg.value = e.response?.data?.message || "Error al crear el pedido.";
+    const proofErr = e.response?.data?.errors?.payment_proof?.[0];
+    err.value = proofErr || e.response?.data?.message || "Error al crear el pedido.";
   } finally {
     checkoutLoading.value = false;
   }
@@ -298,6 +318,7 @@ function formatBs(n) {
                 v-model="paymentMethod"
                 :show-method-select="true"
                 title="Pago y entrega"
+                @update:receiptFile="paymentReceiptFile = $event"
               />
             </div>
             <argon-button
@@ -313,6 +334,12 @@ function formatBs(n) {
               class="text-danger text-xs mt-2 mb-0"
             >
               Completa departamento, ciudad y dirección para continuar.
+            </p>
+            <p
+              v-if="carrito.length && !hasValidPaymentReceipt(paymentMethod, paymentReceiptFile)"
+              class="text-danger text-xs mt-2 mb-0"
+            >
+              {{ RECEIPT_REQUIRED_MESSAGE }}
             </p>
           </div>
         </div>

@@ -1,8 +1,16 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
+import { useStore } from "vuex";
 import MiniStatisticsCard from "@/examples/Cards/MiniStatisticsCard.vue";
 import { fetchReferrals, fetchBinaryChildren, searchBinaryTree } from "@/services/me";
 import BinaryTreeBranch from "./BinaryTreeBranch.vue";
+import {
+  BINARY_LEG_OPTIONS,
+  binaryLegLabel,
+  buildReferralInviteUrl,
+} from "@/utils/referralLink";
+
+const store = useStore();
 
 const loading = ref(true);
 const error = ref("");
@@ -15,6 +23,12 @@ const treeQuery = ref("");
 const treeSearching = ref(false);
 const treeSearchError = ref("");
 const treeContextLabel = ref("Tu árbol");
+const selectedLeg = ref("auto");
+const linkCopied = ref(false);
+let linkCopiedTimer = null;
+
+const miCodigo = computed(() => store.state.auth?.user?.referral_code || "");
+const linkReferido = computed(() => buildReferralInviteUrl(miCodigo.value, selectedLeg.value));
 
 onMounted(async () => {
   loading.value = true;
@@ -153,6 +167,21 @@ function badgeClaseEstado(ref) {
   if (ref.estadoRaw === "pending") return "bg-gradient-warning";
   return "bg-gradient-secondary";
 }
+
+async function copiarEnlaceReferido() {
+  const url = linkReferido.value;
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+    linkCopied.value = true;
+    if (linkCopiedTimer) clearTimeout(linkCopiedTimer);
+    linkCopiedTimer = setTimeout(() => {
+      linkCopied.value = false;
+    }, 2200);
+  } catch {
+    /* ignore */
+  }
+}
 </script>
 
 <template>
@@ -168,6 +197,55 @@ function badgeClaseEstado(ref) {
             </p>
             <p v-if="error" class="text-danger text-sm mt-2 mb-0">{{ error }}</p>
             <p v-else-if="loading" class="text-muted text-sm mt-2 mb-0">Cargando…</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row mb-4">
+      <div class="col-12">
+        <div class="card border-0 shadow-sm referidos-page__intro">
+          <div class="card-body p-4">
+            <div class="d-flex flex-wrap align-items-start justify-content-between gap-3">
+              <div class="min-w-0">
+                <h6 class="mb-1 font-weight-bolder text-dark">Enlace de referidos con pierna binaria</h6>
+                <p class="mb-0 text-xs text-secondary">
+                  Elige el lado del árbol y comparte el enlace. Quien se registre llegará con tu código y la pierna
+                  preseleccionada en el formulario.
+                </p>
+              </div>
+              <span v-if="miCodigo" class="badge bg-light text-primary text-xxs">
+                Tu código: <strong>{{ miCodigo }}</strong>
+              </span>
+            </div>
+
+            <div class="row g-3 mt-2 align-items-end">
+              <div class="col-md-4 col-lg-3">
+                <label class="form-label text-xs text-secondary mb-1">Pierna en el árbol binario</label>
+                <select v-model="selectedLeg" class="form-select form-select-sm">
+                  <option v-for="opt in BINARY_LEG_OPTIONS" :key="opt.value" :value="opt.value">
+                    {{ opt.label }}
+                  </option>
+                </select>
+              </div>
+              <div class="col-md-8 col-lg-7">
+                <label class="form-label text-xs text-secondary mb-1">URL para compartir</label>
+                <div class="input-group input-group-sm">
+                  <input type="text" class="form-control" :value="linkReferido" readonly placeholder="Sin código de socio" />
+                  <button
+                    type="button"
+                    class="btn btn-outline-success mb-0"
+                    :disabled="!linkReferido"
+                    @click="copiarEnlaceReferido"
+                  >
+                    {{ linkCopied ? "¡Copiado!" : "Copiar" }}
+                  </button>
+                </div>
+                <p v-if="selectedLeg !== 'auto'" class="text-xxs text-muted mb-0 mt-1">
+                  Incluye <code>?leg={{ selectedLeg }}</code> ({{ binaryLegLabel(selectedLeg) }}).
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

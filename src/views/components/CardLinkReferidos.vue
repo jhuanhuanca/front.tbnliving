@@ -45,6 +45,17 @@
           </div>
           <div class="card-body pt-3">
             <div class="ref-link-wrapper">
+              <div class="mb-3">
+                <label class="form-label text-xs text-muted mb-1">Pierna binaria en el enlace</label>
+                <select v-model="selectedLeg" class="form-select form-select-sm">
+                  <option v-for="opt in legOptions" :key="opt.value" :value="opt.value">
+                    {{ opt.label }}
+                  </option>
+                </select>
+                <p v-if="selectedLeg !== 'auto'" class="text-xxs text-muted mb-0 mt-1">
+                  El registro abrirá con pierna <strong>{{ legLabel(selectedLeg) }}</strong> preseleccionada.
+                </p>
+              </div>
               <div class="text-xs text-muted mb-1">URL completa</div>
               <div class="input-group">
                 <input ref="inputLink" type="text" class="form-control" :value="linkCompleto" readonly />
@@ -145,7 +156,7 @@
             </ol>
             <router-link
               v-if="miCodigo"
-              :to="{ name: 'Signup', query: { sponsor: miCodigo } }"
+              :to="signupPreviewRoute"
               class="btn btn-outline-success btn-sm mt-3 w-100"
             >
               Ver formulario de registro
@@ -164,6 +175,11 @@
 import { mapState } from "vuex";
 import router from "@/router";
 import { fetchReferrals } from "@/services/me";
+import {
+  BINARY_LEG_OPTIONS,
+  binaryLegLabel,
+  buildReferralInviteUrl,
+} from "@/utils/referralLink";
 
 export default {
   name: "CardLinkReferidos",
@@ -173,6 +189,8 @@ export default {
       error: null,
       items: [],
       resumen: { total: 0, pendientes: 0, activos: 0 },
+      selectedLeg: "auto",
+      legOptions: BINARY_LEG_OPTIONS,
     };
   },
   computed: {
@@ -181,13 +199,14 @@ export default {
       return this.user?.referral_code || "";
     },
     linkCompleto() {
-      const code = this.miCodigo;
-      if (!code) {
-        return "";
+      return buildReferralInviteUrl(this.miCodigo, this.selectedLeg);
+    },
+    signupPreviewRoute() {
+      const query = { sponsor: this.miCodigo };
+      if (this.selectedLeg && this.selectedLeg !== "auto") {
+        query.leg = this.selectedLeg;
       }
-      // Robusto en dev/prod (baseUrl): construye path directo.
-      const href = router.resolve({ path: `/i/${code}` }).href;
-      return href.startsWith("http") ? href : `${window.location.origin}${href}`;
+      return { name: "Signup", query };
     },
     linkPreferenteCompleto() {
       const code = this.miCodigo;
@@ -227,6 +246,9 @@ export default {
       } catch {
         return iso;
       }
+    },
+    legLabel(leg) {
+      return binaryLegLabel(leg);
     },
     badgeEstado(s) {
       const e = String(s || "").toLowerCase();

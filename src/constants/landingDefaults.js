@@ -20,3 +20,4 @@ export const DEFAULT_LANDING_TESTIMONIALS = [
 ];
 
 export const REFERRAL_SPONSOR_STORAGE_KEY = "tbn_referral_sponsor";
+export const REFERRAL_BINARY_LEG_STORAGE_KEY = "tbn_referral_binary_leg";

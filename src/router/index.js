@@ -36,6 +36,7 @@ import AdminPaquetes from "../views/admin/AdminPaquetes.vue";
 import AdminPedidos from "../views/admin/AdminPedidos.vue";
 import RegistroClientePreferente from "../views/RegistroClientePreferente.vue";
 import ClientePreferenteDashboard from "../views/ClientePreferenteDashboard.vue";
+import EventosNoticias from "../views/EventosNoticias.vue";
 
 const requiresAuth = { requiresAuth: true };
 const requiresAdmin = { requiresAuth: true, requiresAdmin: true };
@@ -48,7 +49,11 @@ const routes = [
     name: "Invite",
     redirect: (to) => ({
       path: "/signup",
-      query: { sponsor: to.params.sponsorCode },
+      query: {
+        sponsor: to.params.sponsorCode,
+        ...(to.query.leg ? { leg: to.query.leg } : {}),
+        ...(to.query.pierna ? { pierna: to.query.pierna } : {}),
+      },
     }),
   },
   {
@@ -56,7 +61,11 @@ const routes = [
     name: "Referido",
     redirect: (to) => ({
       path: "/signup",
-      query: { sponsor: to.params.sponsorCode },
+      query: {
+        sponsor: to.params.sponsorCode,
+        ...(to.query.leg ? { leg: to.query.leg } : {}),
+        ...(to.query.pierna ? { pierna: to.query.pierna } : {}),
+      },
     }),
   },
   {
@@ -124,6 +133,8 @@ const routes = [
   { path: "/linkreferidos", name: "LinkReferidos", component: LinkReferidos, meta: requiresAuth },
   { path: "/estadisticas-equipo", name: "EstadisticasEquipo", component: EstadisticasEquipo, meta: requiresAuth },
   { path: "/retiros-historial", name: "RetirosHistorial", component: RetirosHistorial, meta: requiresAuth },
+  { path: "/eventos", name: "EventosNoticias", component: EventosNoticias, meta: requiresAuth },
+  { path: "/submod2", redirect: "/eventos" },
   { path: "/admin/dashboard", name: "AdminDashboard", component: AdminDashboard, meta: requiresAdmin },
   { path: "/admin/retiros", name: "AdminRetiros", component: AdminRetiros, meta: requiresAdmin },
   { path: "/admin/reconciliacion", name: "AdminReconciliacion", component: AdminReconciliacion, meta: requiresAdmin },
