@@ -27,6 +27,7 @@ const password = ref("");
 const rememberMe = ref(false);
 const countryCode = ref("BO");
 const error = ref("");
+const successMsg = ref("");
 const lockoutTick = ref(Date.now());
 let lockoutTimer = null;
 
@@ -63,6 +64,16 @@ onMounted(() => {
       lockoutTick.value = Date.now();
     }
   }, 1000);
+
+  const qEmail = route.query.email;
+  if (typeof qEmail === "string" && qEmail.trim()) {
+    email.value = qEmail.trim();
+  }
+  if (route.query.verified === "1") {
+    successMsg.value = "Correo verificado correctamente. Ya puedes iniciar sesión.";
+  } else if (route.query.registered === "preferente") {
+    successMsg.value = "Cuenta de cliente preferente creada. Inicia sesión con tu correo y contraseña.";
+  }
 });
 
 const login = async () => {
@@ -218,7 +229,11 @@ const login = async () => {
                       Recordarme en este equipo
                     </argon-switch>
 
-                    <div v-if="error" class="alert alert-danger text-white text-sm py-2 mt-3 mb-0" role="alert">
+                    <div v-if="successMsg" class="alert alert-success text-white text-sm py-2 mb-3" role="status">
+                    {{ successMsg }}
+                  </div>
+
+                  <div v-if="error" class="alert alert-danger text-white text-sm py-2 mt-3 mb-0" role="alert">
                       {{ error }}
                     </div>
 

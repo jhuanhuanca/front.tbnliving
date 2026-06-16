@@ -200,7 +200,10 @@ async function submit() {
       password: password.value,
       password_confirmation: passwordConfirmation.value,
     });
-    router.push({ name: "VerificarCorreo", query: { email: email.value.trim() } });
+    router.push({
+      path: "/signin",
+      query: { registered: "preferente", email: email.value.trim().toLowerCase() },
+    });
   } catch (e) {
     const parsed = parseHttpError(e, "el registro de cliente preferente");
     error.value = parsed.fieldErrors.length
