@@ -1,17 +1,11 @@
 import axios from "axios";
+import { resolveApiRoot, resolveApiV1BaseUrl } from "@/config/apiEndpoints";
 
 /**
  * Origen del API (sin /api/v1). Sanctum y rutas legacy: /api/register, /sanctum/csrf-cookie
  */
 export function getApiRoot() {
-  if (process.env.VUE_APP_API_ROOT) {
-    return String(process.env.VUE_APP_API_ROOT).replace(/\/$/, "");
-  }
-  const v1 = process.env.VUE_APP_API_URL || "";
-  if (v1) {
-    return String(v1).replace(/\/api\/v1\/?$/i, "").replace(/\/$/, "");
-  }
-  return "";
+  return resolveApiRoot();
 }
 
 export const useCredentials =

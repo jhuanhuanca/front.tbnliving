@@ -1,4 +1,5 @@
 import axios from "axios";
+import { resolveApiV1BaseUrl } from "@/config/apiEndpoints";
 import { getApiRoot, useCredentials } from "./apiRoot";
 import { ensureCsrfCookie, resetCsrfCookie } from "./sanctum";
 
@@ -6,7 +7,7 @@ import { ensureCsrfCookie, resetCsrfCookie } from "./sanctum";
  * API v1: /api/v1/*
  * CSRF + cookies: dominio raíz (api.tbnliving.com) vía sanctum.js
  */
-const baseURL = process.env.VUE_APP_API_URL || "/api/v1";
+const baseURL = resolveApiV1BaseUrl();
 
 const api = axios.create({
   baseURL,

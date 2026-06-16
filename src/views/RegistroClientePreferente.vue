@@ -8,6 +8,7 @@ import ArgonButton from "@/components/ArgonButton.vue";
 import { registerPreferredCustomer } from "@/services/auth";
 import { fetchSponsorByCode } from "@/services/sponsor";
 import { persistReferralSponsor, readReferralSponsor } from "@/utils/referralStorage";
+import { parseHttpError } from "@/utils/apiErrors";
 import {
   SPONSOR_REQUIRED_MESSAGE,
   SPONSOR_INVALID_MESSAGE,
@@ -201,15 +202,10 @@ async function submit() {
     });
     router.push({ name: "VerificarCorreo", query: { email: email.value.trim() } });
   } catch (e) {
-    const msg = e.response?.data?.message;
-    const errs = e.response?.data?.errors;
-    if (errs && typeof errs === "object") {
-      error.value = Object.values(errs)
-        .flat()
-        .join(" ");
-    } else {
-      error.value = msg || "No se pudo registrar. Revisa los datos.";
-    }
+    const parsed = parseHttpError(e, "el registro de cliente preferente");
+    error.value = parsed.fieldErrors.length
+      ? parsed.fieldErrors.join(" ")
+      : parsed.message;
   } finally {
     loading.value = false;
   }

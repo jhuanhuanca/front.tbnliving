@@ -15,6 +15,7 @@
   },
   "scripts": {
     "serve": "vue-cli-service serve",
+    "prebuild": "node scripts/verify-production-api-env.js",
     "build": "cross-env CI=false; cross-env PUBLIC_URL=/ vue-cli-service build",
     "lint": "vue-cli-service lint",
     "prettify": "prettier --write ."

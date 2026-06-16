@@ -1,7 +1,10 @@
 import api from "./api";
 import { httpRoot } from "./apiRoot";
+import { setupHttpRootInterceptors } from "./httpRootInterceptors";
 import { ensureCsrfCookie } from "./sanctum";
 import { fetchProfile } from "./me";
+
+setupHttpRootInterceptors();
 
 /** Extrae token y user de respuestas v1 (envoltorio) o legacy (planos). */
 export function parseAuthPayload(data) {
@@ -42,7 +45,8 @@ export async function fetchSessionUser() {
 }
 
 /**
- * Registro MLM — ruta legacy que usa el panel/documentación: POST /api/register
+ * Registro MLM — POST {API_ROOT}/api/register
+ * Producción: https://api.tbnliving.com/api/register
  * Flujo: GET /sanctum/csrf-cookie → POST /api/register
  */
 export async function registerMember(payload) {
@@ -51,12 +55,7 @@ export async function registerMember(payload) {
   return response;
 }
 
-/** Alias v1 (misma lógica, prefijo /api/v1/register). */
-export async function registerMemberV1(payload) {
-  await ensureCsrfCookie();
-  return api.post("/register", payload);
-}
-
+/** Registro cliente preferente — POST {API_ROOT}/api/register/preferred-customer */
 export async function registerPreferredCustomer(body) {
   await ensureCsrfCookie();
   return httpRoot.post("/api/register/preferred-customer", body);

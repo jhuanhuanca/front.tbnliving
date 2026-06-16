@@ -7,7 +7,7 @@ import AppFooter from "@/examples/PageLayout/Footer.vue";
 import ArgonInput from "@/components/ArgonInput.vue";
 import ArgonButton from "@/components/ArgonButton.vue";
 import { registerMember } from "@/services/auth";
-import { allApiErrorMessages } from "@/utils/apiErrors";
+import { parseHttpError } from "@/utils/apiErrors";
 import { buildMemberRegisterPayload } from "@/utils/registerPayload";
 import { persistReferralSponsor, readReferralSponsor, persistReferralBinaryLeg, readReferralBinaryLeg } from "@/utils/referralStorage";
 import { normalizeBinaryLegParam } from "@/utils/referralLink";
@@ -340,6 +340,13 @@ async function validateSponsor() {
   }
 }
 
+function validatePhone(v, dial) {
+  const normalized = normalizePhoneWithDial(v, dial);
+  if (!normalized) return "El teléfono es obligatorio.";
+  if (normalized.length < 8) return "Introduce un número de teléfono válido.";
+  return "";
+}
+
 function validateCiNit(v) {
   const s = String(v || "").trim();
   if (!s) return "El CI / NIT es obligatorio.";
@@ -394,6 +401,11 @@ async function signup() {
   const ciErr = validateCiNit(ciNit.value);
   if (ciErr) {
     error.value = ciErr;
+    return;
+  }
+  const phoneErr = validatePhone(phone.value, phoneDial.value);
+  if (phoneErr) {
+    error.value = phoneErr;
     return;
   }
   const emErr = validateEmailFormat(email.value);
@@ -452,11 +464,9 @@ async function signup() {
       router.push("/dashboard-default");
     }
   } catch (err) {
-    fieldErrors.value = allApiErrorMessages(err.response?.data);
-    error.value =
-      fieldErrors.value[0] ||
-      err.response?.data?.message ||
-      "No se pudo completar el registro.";
+    const parsed = parseHttpError(err, "el registro");
+    fieldErrors.value = parsed.fieldErrors;
+    error.value = parsed.message;
   } finally {
     loading.value = false;
   }
@@ -615,7 +625,7 @@ async function signup() {
                   <p class="text-xxs text-muted mb-0 mt-1">Obligatorio. Se guarda como documento de identidad en el sistema.</p>
                 </div>
                 <div class="mb-3">
-                  <label class="form-label text-sm mb-1">Teléfono</label>
+                  <label class="form-label text-sm mb-1">Teléfono <span class="text-danger">*</span></label>
                   <div class="input-group">
                     <span class="input-group-text">{{ phoneDial }}</span>
                     <input
