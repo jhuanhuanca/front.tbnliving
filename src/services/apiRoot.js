@@ -1,5 +1,5 @@
 import axios from "axios";
-import { resolveApiRoot, resolveApiV1BaseUrl } from "@/config/apiEndpoints";
+import { resolveApiRoot } from "@/config/apiEndpoints";
 
 /**
  * Origen del API (sin /api/v1). Sanctum y rutas legacy: /api/register, /sanctum/csrf-cookie
